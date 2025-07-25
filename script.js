@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveButton = document.getElementById('saveButton');
     const canvasPlaceholder = document.getElementById('canvas-placeholder');
     const canvasContainer = document.querySelector('.canvas-container');
+    const placeholderIcon = canvasPlaceholder.querySelector('i');
+    const placeholderText = canvasPlaceholder.querySelector('p');
 
     // --- Application State ---
     let originalImageData = null;
@@ -38,28 +40,65 @@ document.addEventListener('DOMContentLoaded', () => {
         resetButton.addEventListener('click', resetAllFilters);
         saveButton.addEventListener('click', saveImage);
     }
+    
+    // --- UI Feedback Functions ---
+    function showLoadingState(message) {
+        placeholderIcon.setAttribute('data-lucide', 'loader-circle');
+        lucide.createIcons(); // Re-render icons
+        placeholderText.textContent = message;
+        canvasPlaceholder.classList.remove('hidden');
+        canvasContainer.classList.add('hidden');
+    }
 
-    // --- Image Handling ---
+    function showErrorState(message) {
+        placeholderIcon.setAttribute('data-lucide', 'alert-triangle');
+        lucide.createIcons();
+        placeholderText.textContent = message;
+        alert(message); // Also show a system alert for clarity
+    }
+
+    // --- Image Handling (UPDATED with better feedback and error handling) ---
     function handleImageUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
 
+        // --- Step 1: Provide immediate feedback ---
+        showLoadingState('Reading file...');
+
         const reader = new FileReader();
+
+        // --- Step 2: Handle potential file reading errors ---
+        reader.onerror = () => {
+            showErrorState('Error: Could not read the selected file.');
+        };
+
         reader.onload = (event) => {
+            showLoadingState('Decoding image...');
+            
+            // --- Step 3: Handle potential image loading errors ---
+            originalImage.onerror = () => {
+                showErrorState('Error: The selected file is not a valid or supported image format.');
+            };
+
             originalImage.onload = () => {
-                // Set canvas size to match image
-                canvas.width = originalImage.width;
-                canvas.height = originalImage.height;
-                
-                // Draw image and store its original pixel data
-                ctx.drawImage(originalImage, 0, 0);
-                originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                try {
+                    // Set canvas size to match image
+                    canvas.width = originalImage.width;
+                    canvas.height = originalImage.height;
+                    
+                    // Draw image and store its original pixel data
+                    ctx.drawImage(originalImage, 0, 0, originalImage.width, originalImage.height);
+                    originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-                // Show canvas and hide placeholder
-                canvasPlaceholder.classList.add('hidden');
-                canvasContainer.classList.remove('hidden');
+                    // --- Step 4: Show the canvas and hide the placeholder ---
+                    canvasPlaceholder.classList.add('hidden');
+                    canvasContainer.classList.remove('hidden');
 
-                resetAllFilters(); // Apply default filter values
+                    resetAllFilters(); // Apply default filter values
+                } catch (err) {
+                    console.error("Canvas drawing error:", err);
+                    showErrorState('An unexpected error occurred while displaying the image.');
+                }
             };
             originalImage.src = event.target.result;
         };
@@ -85,24 +124,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         value="${filter.value}"
                         data-filter="${key}"
                         class="w-full"
+                        disabled 
                     >
                 </div>
             `;
             controlsPanel.innerHTML += controlHTML;
         }
-
-        // Add event listeners to the newly created sliders
-        document.querySelectorAll('input[type="range"]').forEach(slider => {
-            slider.addEventListener('input', (e) => {
-                const key = e.target.dataset.filter;
-                filters[key].value = parseInt(e.target.value, 10);
-                document.getElementById(`${key}-value`).textContent = `${filters[key].value}${filters[key].unit}`;
-                applyAllFilters();
-            });
-        });
     }
 
     function resetAllFilters() {
+        if (!originalImageData) return;
+
         for (const key in filters) {
             // Reset filter values to defaults
             if (key === 'brightness' || key === 'contrast') filters[key].value = 0;
@@ -112,6 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const slider = document.getElementById(key);
             if (slider) {
                 slider.value = filters[key].value;
+                slider.disabled = false; // Enable the slider
                 document.getElementById(`${key}-value`).textContent = `${filters[key].value}${filters[key].unit}`;
             }
         }
@@ -119,15 +152,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Main Filter Application Logic (Simulating C++/Wasm) ---
-    // This function is called whenever a slider is moved.
     function applyAllFilters() {
         if (!originalImageData) return;
 
-        // Start with a fresh copy of the original image data
         const data = new Uint8ClampedArray(originalImageData.data);
         const len = data.length;
 
-        // Get current filter values
         const brightness = filters.brightness.value;
         const contrast = filters.contrast.value;
         const grayscale = filters.grayscale.value / 100;
@@ -166,13 +196,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 b = b * (1 - grayscale) + avg * grayscale;
             }
             
-            // Clamp values to 0-255 range
             data[i] = Math.max(0, Math.min(255, r));
             data[i + 1] = Math.max(0, Math.min(255, g));
             data[i + 2] = Math.max(0, Math.min(255, b));
         }
 
-        // Put the modified pixel data back onto the canvas
         ctx.putImageData(new ImageData(data, canvas.width, canvas.height), 0, 0);
     }
     
